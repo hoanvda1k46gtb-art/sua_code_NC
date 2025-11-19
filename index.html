@@ -1,15 +1,4 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Hello, World!</title>
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-      <h1 class="title">Hello World! </h1>
-      <p id="currentTime"></p>
-      <script src="script.js"></script>
-  </body>
-</html><!doctype html>
+<!doctype html>
 <html lang="vi">
 <head>
   <meta charset="utf-8" />
@@ -75,7 +64,7 @@
       </div>
     </div>
 
-    <p class="muted">Ghi chú: tất cả lựa chọn <strong>dùng máy cấp phôi</strong>, <strong>part catcher</strong> và <strong>cut-off</strong> có thể bật cùng lúc; chương trình sẽ chèn/biến đổi theo thứ tự hợp lý. Các trường nhập cut-off yêu cầu dấu chấm ('.') trong số — nếu thiếu sẽ báo lỗi cú pháp.</p>
+    <p class="muted">Ghi chú: các lựa chọn <strong>dùng máy cấp phôi</strong>, <strong>part catcher</strong> và <strong>cut-off</strong> có thể bật cùng lúc theo quy tắc: <strong>bar feeder</strong> chỉ hoạt động với HD1; <strong>part catcher</strong> chỉ hoạt động với HD2. Trường nhập cut-off yêu cầu dấu chấm ('.') trong số — nếu thiếu sẽ báo lỗi cú pháp.</p>
   </div>
 
   <!-- Modal area for cut-off prompts -->
@@ -143,7 +132,7 @@
       fields.forEach(f => {
         const div = document.createElement('div');
         div.style.marginTop = '6px';
-        div.innerHTML = `<label style=\"display:flex;flex-direction:column;gap:6px;font-size:13px\">${f.label}<input id=\"fld_${f.id}\" placeholder=\"${f.placeholder||''}\" style=\"padding:6px;border:1px solid #ccc;border-radius:6px\"></label>`;
+        div.innerHTML = `<label style="display:flex;flex-direction:column;gap:6px;font-size:13px">${f.label}<input id="fld_${f.id}" placeholder="${f.placeholder||''}" style="padding:6px;border:1px solid #ccc;border-radius:6px"></label>`;
         modalBody.appendChild(div);
       });
       modal.style.display = 'flex';
@@ -172,7 +161,7 @@
 
     const cutoffHD1Template = (A,B)=>[
 `M990`, `N9000`, `G54`, `G28 U0. V0. M5`, `T1111`, `G28W0.M8`, `G97G99`, `M13`, `G28H0.`, `G0 C0.`,
-`M991`, `M992`, `G97S0P11M203`, `G97S1200P11M203`, `G00 Z ${A} Y0`, `X ${B} M28`, `G1 X-0.5 F0.05`, `G4U0.2`, `G00 X ${B}`,
+`M991`, `M992`, `G97S0P11M203`, `G97S1200P11M203`, `G00 Z ${A} Y0.`, `X ${B} M28`, `G1 X-0.5 F0.05`, `G4U0.2`, `G00 X ${B}`,
 `M205`, `M206`, `M191`, `G97S70M03P11`, `M270`, `M993`, `G28U0.V0.M95`, `G30W0.M29`, `M999`
 ];
 
@@ -196,9 +185,10 @@
         // replacements & append P11 to lines with M03 or M04
         lines = lines.map(l=>{
           if((/\bM03\b/.test(l) || /\bM04\b/.test(l)) && !/P11/.test(l)) l = l + 'P11';
-          l = replaceToken(l,'M204','M44P12');
+          l = replaceToken(l,'M204','M44 P12');
           l = replaceToken(l,'M203','M43P12');
           l = replaceToken(l,'M25','M13');
+          l = replaceToken(l,'M205','M05');
           return l;
         });
 
@@ -224,20 +214,29 @@
           }
         }
 
-        // Allow part catcher if user explicitly checked (even if normally disabled) -> but requirement: part catcher operates with HD2; enforce disabled earlier. Here we respect UI.
         return lines.join('\n');
       }
 
       if(isHD2){
         // removals
-        lines = removeLinesContaining(lines, ['M97','M78','M79','A0']);
+        lines = removeLinesContaining(lines, ['M97','M78','M79','M77','A0']);
         lines = lines.map(l=>{
+          // add P21 to M103
           if(/\bM103\b/.test(l) && !/P21/.test(l)) l = l + 'P21';
-          if(/\bM104\b/.test(l) && !/M104P21/.test(l)) l = l.replace(/\bM104\b/g,'M104P21');
+          // add/replace M104 -> M104P21 (avoid double-appending)
+          if(/\bM104\b/.test(l) && !/M104P21/.test(l)){
+            l = l.replace(/\bM104\b/g,'M104P21');
+          }
           l = replaceToken(l,'M203','M43P22');
           l = replaceToken(l,'M204','M44P22');
-          l = replaceToken(l,'M25','M113');
-          l = replaceToken(l,'M26','M151');
+          l = replaceToken(l,'M125','M113');
+          l = replaceToken(l,'M126','M151');
+          l = replaceToken(l,'M08','M108');
+          l = replaceToken(l,'M09','M109');
+          l = replaceToken(l,'M205','M105');
+          // Replace token B with C (only standalone B)
+          l = l.replace(/\bB\b/g,'C');
+          // remove V0. and Y0.
           l = l.replace(/\bV0\./g,'');
           l = l.replace(/\bY0\./g,'');
           return l;
@@ -265,7 +264,7 @@
           lines.splice(insertAt,0,'M37');
         }
 
-        // Bar feeder: disabled in HD2 by UI, but if user force-checks via DOM (shouldn't), guard: do not insert here
+        // Bar feeder: disabled in HD2 by UI (no insertion)
 
         return lines.join('\n');
       }
