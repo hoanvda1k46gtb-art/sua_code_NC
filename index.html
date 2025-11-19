@@ -1,4 +1,15 @@
-<!doctype html>
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Hello, World!</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+      <h1 class="title">Hello World! </h1>
+      <p id="currentTime"></p>
+      <script src="script.js"></script>
+  </body>
+</html><!doctype html>
 <html lang="vi">
 <head>
   <meta charset="utf-8" />
@@ -82,10 +93,10 @@
 
   <script>
     // Helpers
-    function escapeRE(s){ return s.replace(/[.*+?^${}()|[\]\]/g,'\$&'); }
-    function hasToken(line, token){ return new RegExp('\b'+escapeRE(token)+'\b').test(line); }
-    function replaceToken(line, from, to){ const re=new RegExp('\b'+escapeRE(from)+'\b','g'); return line.replace(re,to); }
-    function removeLinesContaining(lines, tokens){ return lines.filter(l => !tokens.some(t => new RegExp('\b'+escapeRE(t)+'\b').test(l))); }
+    function escapeRE(s){ return s.replace(/[.*+?^${}()|[\\]\\]/g,'\\$&'); }
+    function hasToken(line, token){ return new RegExp('\\b'+escapeRE(token)+'\\b').test(line); }
+    function replaceToken(line, from, to){ const re=new RegExp('\\b'+escapeRE(from)+'\\b','g'); return line.replace(re,to); }
+    function removeLinesContaining(lines, tokens){ return lines.filter(l => !tokens.some(t => new RegExp('\\b'+escapeRE(t)+'\\b').test(l))); }
 
     const inputEl = document.getElementById('input');
     const outputEl = document.getElementById('output');
@@ -174,10 +185,8 @@
 
     // Main transform
     async function transform(text){
-      const raw = text.split(/
-?
-/);
-      let lines = raw.map(l=>l.replace(/	/g,' ').trim());
+      const raw = text.split(/\r?\n/);
+      let lines = raw.map(l=>l.replace(/\t/g,' ').trim());
       const isHD1 = hd1Radio.checked;
       const isHD2 = hd2Radio.checked;
 
@@ -186,7 +195,7 @@
         lines = removeLinesContaining(lines, ['M26','M97','M78','M79']);
         // replacements & append P11 to lines with M03 or M04
         lines = lines.map(l=>{
-          if((/M03/.test(l) || /M04/.test(l)) && !/P11/.test(l)) l = l + 'P11';
+          if((/\bM03\b/.test(l) || /\bM04\b/.test(l)) && !/P11/.test(l)) l = l + 'P11';
           l = replaceToken(l,'M204','M44P12');
           l = replaceToken(l,'M203','M43P12');
           l = replaceToken(l,'M25','M13');
@@ -209,29 +218,28 @@
           });
           if(vals){
             const block = cutoffHD1Template(vals.A, vals.B);
-            const idx = lines.findIndex(l=>/M30/.test(l));
+            const idx = lines.findIndex(l=>/\bM30\b/.test(l));
             const insertAt = idx===-1?lines.length:idx;
             lines.splice(insertAt,0,...block);
           }
         }
 
         // Allow part catcher if user explicitly checked (even if normally disabled) -> but requirement: part catcher operates with HD2; enforce disabled earlier. Here we respect UI.
-        return lines.join('
-');
+        return lines.join('\n');
       }
 
       if(isHD2){
         // removals
         lines = removeLinesContaining(lines, ['M97','M78','M79','A0']);
         lines = lines.map(l=>{
-          if(/M103/.test(l) && !/P21/.test(l)) l = l + 'P21';
-          if(/M104/.test(l) && !/M104P21/.test(l)) l = l.replace(/M104/g,'M104P21');
+          if(/\bM103\b/.test(l) && !/P21/.test(l)) l = l + 'P21';
+          if(/\bM104\b/.test(l) && !/M104P21/.test(l)) l = l.replace(/\bM104\b/g,'M104P21');
           l = replaceToken(l,'M203','M43P22');
           l = replaceToken(l,'M204','M44P22');
           l = replaceToken(l,'M25','M113');
           l = replaceToken(l,'M26','M151');
-          l = l.replace(/V0\./g,'');
-          l = l.replace(/Y0\./g,'');
+          l = l.replace(/\bV0\./g,'');
+          l = l.replace(/\bY0\./g,'');
           return l;
         });
 
@@ -252,19 +260,17 @@
 
         // Part catcher: if selected, add M37 before M30
         if(partCatcher.checked){
-          const idx = lines.findIndex(l=>/M30/.test(l));
+          const idx = lines.findIndex(l=>/\bM30\b/.test(l));
           const insertAt = idx===-1?lines.length:idx;
           lines.splice(insertAt,0,'M37');
         }
 
         // Bar feeder: disabled in HD2 by UI, but if user force-checks via DOM (shouldn't), guard: do not insert here
 
-        return lines.join('
-');
+        return lines.join('\n');
       }
 
-      return lines.join('
-');
+      return lines.join('\n');
     }
 
     runBtn.addEventListener('click', async ()=>{
