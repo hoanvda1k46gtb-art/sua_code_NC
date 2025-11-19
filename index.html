@@ -50,7 +50,6 @@
         <textarea id="input" placeholder="Dán mã NC tại đây..."></textarea>
         <div class="footer-controls">
           <button id="clearInput" class="small">Xóa văn bản đã nhập</button>
-          <button id="copyInput" class="small">Copy input</button>
         </div>
       </div>
 
@@ -92,7 +91,6 @@
     const runBtn = document.getElementById('run');
     const copyOut = document.getElementById('copyOut');
     const clearInput = document.getElementById('clearInput');
-    const copyInput = document.getElementById('copyInput');
     const hd1Radio = document.getElementById('hd1');
     const hd2Radio = document.getElementById('hd2');
     const partCatcher = document.getElementById('partCatcher');
@@ -106,9 +104,7 @@
     const modalOk = document.getElementById('modalOk');
     const modalError = document.getElementById('modalError');
 
-    // When switching HD mode, enable/disable checkboxes according to requirements:
-    // - barFeeder allowed only with HD1
-    // - partCatcher allowed only with HD2
+    // When switching HD mode, enable/disable checkboxes
     function refreshModeUI(){
       if(hd1Radio.checked){
         barFeeder.disabled = false;
@@ -122,7 +118,6 @@
     }
     hd1Radio.addEventListener('change', refreshModeUI);
     hd2Radio.addEventListener('change', refreshModeUI);
-    // initial
     refreshModeUI();
 
     function showModal(title, fields, callback){
@@ -180,9 +175,7 @@
       const isHD2 = hd2Radio.checked;
 
       if(isHD1){
-        // removals
         lines = removeLinesContaining(lines, ['M26','M97','M78','M79']);
-        // replacements & append P11 to lines with M03 or M04
         lines = lines.map(l=>{
           if((/\bM03\b/.test(l) || /\bM04\b/.test(l)) && !/P11/.test(l)) l = l + 'P11';
           l = replaceToken(l,'M204','M44 P12');
@@ -191,14 +184,10 @@
           l = replaceToken(l,'M205','M05');
           return l;
         });
-
-        // Bar feeder insertion (if selected) -> between line 2 and 3 of original input
         if(barFeeder.checked){
           const insertAt = Math.min(2, lines.length);
           lines.splice(insertAt,0,...feederBlock);
         }
-
-        // Cutoff sync: insert block BEFORE first M30 (if any), using prompt A and B
         if(cutoffSync.checked){
           const vals = await new Promise((res)=>{
             showModal('Cut-off HD1 — nhập A (Z) và B (X)', [
@@ -213,17 +202,13 @@
             lines.splice(insertAt,0,...block);
           }
         }
-
         return lines.join('\n');
       }
 
       if(isHD2){
-        // removals
         lines = removeLinesContaining(lines, ['M97','M78','M79','M77','A0']);
         lines = lines.map(l=>{
-          // add P21 to M103
           if(/\bM103\b/.test(l) && !/P21/.test(l)) l = l + 'P21';
-          // add/replace M104 -> M104P21 (avoid double-appending)
           if(/\bM104\b/.test(l) && !/M104P21/.test(l)){
             l = l.replace(/\bM104\b/g,'M104P21');
           }
@@ -234,15 +219,13 @@
           l = replaceToken(l,'M08','M108');
           l = replaceToken(l,'M09','M109');
           l = replaceToken(l,'M205','M105');
-          // Replace token B with C (only standalone B)
-          l = l.replace(/B/g, 'C');
-          // remove V0. and Y0.
+          // Thay tất cả B thành C, kể cả cạnh số
+          l = l.replace(/B/g,'C');
           l = l.replace(/\bV0\./g,'');
           l = l.replace(/\bY0\./g,'');
           return l;
         });
 
-        // Cutoff sync HD2: insert block BETWEEN line 2 and 3 of the original input
         if(cutoffSync.checked){
           const vals = await new Promise((res)=>{
             showModal('Cut-off HD2 — nhập E và Q', [
@@ -257,14 +240,11 @@
           }
         }
 
-        // Part catcher: if selected, add M37 before M30
         if(partCatcher.checked){
           const idx = lines.findIndex(l=>/\bM30\b/.test(l));
           const insertAt = idx===-1?lines.length:idx;
           lines.splice(insertAt,0,'M37');
         }
-
-        // Bar feeder: disabled in HD2 by UI (no insertion)
 
         return lines.join('\n');
       }
@@ -282,9 +262,13 @@
       }catch(e){ alert('Lỗi khi xử lý: '+e.message); }
     });
 
-    copyOut.addEventListener('click', ()=>{ navigator.clipboard.writeText(outputEl.value).then(()=>alert('Copied kết quả vào clipboard')) });
-    copyInput.addEventListener('click', ()=>{ navigator.clipboard.writeText(inputEl.value).then(()=>alert('Copied input vào clipboard')) });
-    clearInput.addEventListener('click', ()=>{ if(confirm('Xóa văn bản đã nhập?')) inputEl.value=''; });
+    copyOut.addEventListener('click', ()=>{ 
+      navigator.clipboard.writeText(outputEl.value).then(()=>alert('Copied kết quả vào clipboard')) 
+    });
+
+    clearInput.addEventListener('click', ()=>{ 
+      if(confirm('Xóa văn bản đã nhập?')) inputEl.value=''; 
+    });
   </script>
 </body>
 </html>
