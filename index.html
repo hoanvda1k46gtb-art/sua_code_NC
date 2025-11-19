@@ -235,7 +235,7 @@
           l = replaceToken(l,'M09','M109');
           l = replaceToken(l,'M205','M105');
           // Replace token B with C (only standalone B)
-          l = l.replace(/\bB\b/g,'C');
+          l = l.replace(/B/g, 'C');
           // remove V0. and Y0.
           l = l.replace(/\bV0\./g,'');
           l = l.replace(/\bY0\./g,'');
