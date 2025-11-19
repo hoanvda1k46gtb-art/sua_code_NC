@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>sửa code NC</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;margin:18px;background:#f6f8fb}
+    h1{margin:0 0 12px;font-size:20px}
+    .row{display:flex;gap:10px;align-items:center}
+    .controls{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+    label{display:flex;align-items:center;gap:6px}
+    textarea{width:100%;height:320px;padding:10px;font-family:monospace;white-space:pre;resize:vertical}
+    .box{background:#fff;padding:12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+    .left{flex:1;min-width:320px}
+    .right{flex:1;min-width:320px}
+    button{padding:8px 12px;border-radius:6px;border:1px solid #cfd8e3;background:#edf2fb;cursor:pointer}
+    .muted{color:#555;font-size:13px}
+    .center{display:flex;justify-content:center}
+    .options-row{display:flex;gap:18px;align-items:center}
+    .footer-controls{display:flex;gap:12px;justify-content:flex-end;margin-top:8px}
+    .columns{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .small{font-size:13px;padding:6px 8px}
+    .error{color:#b00020}
+    .inline{display:inline-flex;gap:8px;align-items:center}
+  </style>
+</head>
+<body>
+  <h1>Ứng dụng: sửa code NC</h1>
+  <div class="box">
+    <div class="controls">
+      <div class="inline">
+        <label><input type="radio" name="mode" id="hd1" checked> <strong>HD1</strong></label>
+        <label><input type="radio" name="mode" id="hd2"> <strong>HD2</strong></label>
+      </div>
+
+      <div class="inline">
+        <label><input type="checkbox" id="partCatcher"> Dùng part catcher</label>
+        <label><input type="checkbox" id="barFeeder"> Dùng máy cấp phôi</label>
+      </div>
+
+      <div style="flex:1"></div>
+
+      <label class="inline"><input type="checkbox" id="cutoffSync"> Cut-off đồng bộ C1, C2</label>
+    </div>
+
+    <div class="columns">
+      <div class="box left">
+        <div class="muted">Bảng nhập văn bản (dán mã NC vào đây)</div>
+        <textarea id="input" placeholder="Dán mã NC tại đây..."></textarea>
+        <div class="footer-controls">
+          <button id="clearInput" class="small">Xóa văn bản đã nhập</button>
+          <button id="copyInput" class="small">Copy input</button>
+        </div>
+      </div>
+
+      <div class="box right">
+        <div class="muted">Kết quả</div>
+        <textarea id="output" readonly placeholder="Kết quả sẽ hiện ở đây"></textarea>
+        <div class="footer-controls">
+          <button id="run" class="small">Thực hiện</button>
+          <button id="copyOut" class="small">Copy kết quả</button>
+        </div>
+      </div>
+    </div>
+
+    <p class="muted">Ghi chú: chương trình thực hiện nhiều thao tác chuỗi theo lựa chọn HD1/HD2. Nếu trường hợp nhập các tham số cut-off (A,B hoặc E,Q) yêu cầu phải có dấu chấm ('.') — nếu không có dấu chấm sẽ báo lỗi cú pháp.</p>
+  </div>
+
+  <!-- Modal area for cut-off prompts -->
+  <div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);align-items:center;justify-content:center">
+    <div style="background:#fff;padding:14px;border-radius:8px;min-width:320px;max-width:90%">
+      <div id="modalTitle" style="font-weight:700;margin-bottom:8px"></div>
+      <div id="modalBody"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button id="modalCancel">Hủy</button>
+        <button id="modalOk">OK</button>
+      </div>
+      <div id="modalError" class="error" style="margin-top:8px;display:none"></div>
+    </div>
+  </div>
+
+  <script>
+    // Utility helpers
+    function hasToken(line, token){
+      return new RegExp('\\b'+token.replace('.', '\\.')+'\\b').test(line);
+    }
+
+    function replaceToken(line, from, to){
+      const re = new RegExp('\\b'+from.replace('.', '\\.')+'\\b','g');
+      return line.replace(re,to);
+    }
+
+    function removeLinesContaining(lines, tokens){
+      return lines.filter(l => !tokens.some(t => new RegExp('\\b'+t.replace('.', '\\.')+'\\b').test(l)));
+    }
+
+    // Elements
+    const inputEl = document.getElementById('input');
+    const outputEl = document.getElementById('output');
+    const runBtn = document.getElementById('run');
+    const copyOut = document.getElementById('copyOut');
+    const clearInput = document.getElementById('clearInput');
+    const copyInput = document.getElementById('copyInput');
+    const hd1Radio = document.getElementById('hd1');
+    const hd2Radio = document.getElementById('hd2');
+    const partCatcher = document.getElementById('partCatcher');
+    const barFeeder = document.getElementById('barFeeder');
+    const cutoffSync = document.getElementById('cutoffSync');
+
+    const modal = document.getElementById('modal');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalBody = document.getElementById('modalBody');
+    const modalCancel = document.getElementById('modalCancel');
+    const modalOk = document.getElementById('modalOk');
+    const modalError = document.getElementById('modalError');
+
+    // Modal helpers
+    function showModal(title, fields, callback){
+      modalTitle.textContent = title;
+      modalBody.innerHTML = '';
+      modalError.style.display = 'none';
+      fields.forEach(f => {
+        const div = document.createElement('div');
+        div.style.marginTop = '6px';
+        div.innerHTML = `<label style=\"display:flex;flex-direction:column;gap:6px;font-size:13px\">${f.label}<input id=\"fld_${f.id}\" placeholder=\"${f.placeholder||''}\" style=\"padding:6px;border:1px solid #ccc;border-radius:6px\"></label>`;
+        modalBody.appendChild(div);
+      });
+      modal.style.display = 'flex';
+
+      function close(){
+        modal.style.display = 'none';
+      }
+      modalCancel.onclick = () => { close(); callback(null); };
+      modalOk.onclick = () => {
+        modalError.style.display = 'none';
+        const values = {};
+        let ok = true;
+        fields.forEach(f => {
+          const v = document.getElementById('fld_'+f.id).value.trim();
+          values[f.id] = v;
+          if(f.required && v==='') ok=false;
+          // syntax check: if field requires dot
+          if(f.requireDot && v.indexOf('.') === -1){
+            ok = false; modalError.style.display = 'block'; modalError.textContent = `Lỗi cú pháp: giá trị ${f.label} phải chứa dấu '.'`;
+          }
+        });
+        if(!ok) return;
+        close();
+        callback(values);
+      };
+    }
+
+    // Core transform
+    function transform(text){
+      const linesRaw = text.split(/\r?\n/);
+      let lines = linesRaw.map(l=>l.replace(/\t/g,' ').trim());
+      const isHD1 = hd1Radio.checked;
+      const isHD2 = hd2Radio.checked;
+
+      // Preliminary global replacements that depend on mode
+      if(isHD1){
+        // Remove lines containing M26, M97, M78, M79
+        lines = removeLinesContaining(lines, ['M26','M97','M78','M79']);
+        lines = lines.map(l => {
+          // if contains M03 or M04, append P11 (if not already present)
+          if((/\bM03\b/.test(l) || /\bM04\b/.test(l)) && !/P11/.test(l)) l = l + 'P11';
+          // replacements
+          l = replaceToken(l,'M204','M44P12');
+          l = replaceToken(l,'M203','M43P12');
+          l = replaceToken(l,'M25','M13');
+          return l;
+        });
+
+        // If barFeeder selected -> insert bar feeder block between line 2 and 3
+        if(barFeeder.checked){
+          const feeder = [
+`G54 `,
+`G50S1500`,
+`M900`,
+`G28V0.`,
+`G28U0.`,
+`G30W0.`,
+`T0000 `,
+`M01`,
+``,
+`M910`,
+``,
+`N20(BAR STOP) `,
+`G54 `,
+`G28U0.V0.M29`,
+`G40G97T0909M95`,
+`G0Z20.0 `,
+`X0Y0. `,
+`G98G1Z0.2F2000`,
+`M17 `,
+`M00(PUSH BAR MATERIAL BY HAND)`,
+`M18 `,
+`G4X0.5`,
+`G0W20.`,
+`G28U0.`,
+`G30W0.`,
+`M911`,
+`M1`
+          ];
+          const insertAt = Math.min(2, lines.length);
+          lines.splice(insertAt,0,...feeder);
+        }
+
+        // Cutoff sync: will be inserted before M30 using prompt A and B
+        if(cutoffSync.checked){
+          // show modal to collect A and B
+          return new Promise((resolve)=>{
+            showModal('Cut-off HD1 — nhập A (Z) và B (X)', [
+              {id:'A',label:'A = vị trí cắt theo trục Z (chiều dài + bề rộng dao).', required:true, requireDot:true, placeholder:'vd:123.5'},
+              {id:'B',label:'B = khoảng cách an toàn theo X (đường kính + 5mm).', required:true, requireDot:true, placeholder:'vd:50.0'}
+            ], vals => {
+              if(vals===null){ resolve(lines.join('\n')); return; }
+              const A = vals.A; const B = vals.B;
+              const block = [
+`M990`,
+`N9000`,
+`G54`,
+`G28 U0. V0. M5`,
+`T1111`,
+`G28W0.M8`,
+`G97G99`,
+`M13`,
+`G28H0.`,
+`G0 C0.`,
+`M991`,
+`M992`,
+`G97S0P11M203`,
+`G97S1200P11M203`,
+`G00 Z ${A} Y0`,
+`X ${B} M28`,
+`G1 X-0.5 F0.05`,
+`G4U0.2`,
+`G00 X ${B}`,
+`M205`,
+`M206`,
+`M191`,
+`G97S70M03P11`,
+`M270`,
+`M993`,
+`G28U0.V0.M95`,
+`G30W0.M29`,
+`M999`
+              ];
+              // insert before the first line that is exactly 'M30' or contains M30 token
+              const idx = lines.findIndex(l=>/\bM30\b/.test(l));
+              const insertAt = idx===-1?lines.length:idx;
+              lines.splice(insertAt,0,...block);
+              resolve(lines.join('\n'));
+            });
+          });
+        }
+
+        // If no cutoffSync (synchronous) or after other ops, return
+        return Promise.resolve(lines.join('\n'));
+      }
+
+      if(isHD2){
+        // remove lines containing M97, M78, M79, A0
+        lines = removeLinesContaining(lines, ['M97','M78','M79','A0']);
+        lines = lines.map(l => {
+          // M103 add P21
+          if(/\bM103\b/.test(l) && !/P21/.test(l)) l = l + 'P21';
+          // M104 add M104P21 (if not already)
+          if(/\bM104\b/.test(l) && !/M104P21/.test(l)) l = l.replace(/\bM104\b/g,'M104P21');
+          // token replacements
+          l = replaceToken(l,'M203','M43P22');
+          l = replaceToken(l,'M204','M44P22');
+          l = replaceToken(l,'M25','M113');
+          l = replaceToken(l,'M26','M151');
+          // remove V0. and Y0.
+          l = l.replace(/\bV0\./g,'');
+          l = l.replace(/\bY0\./g,'');
+          return l;
+        });
+
+        // Cutoff sync HD2: insert block between line 2 and 3 of original input (i.e., after second line)
+        if(cutoffSync.checked){
+          return new Promise((resolve)=>{
+            showModal('Cut-off HD2 — nhập E và Q', [
+              {id:'E',label:'E = khoảng cách an toàn của Z2 (cách bề mặt phôi 5mm).', required:true, requireDot:true, placeholder:'vd:5.0'},
+              {id:'Q',label:'Q = vị trí kẹp (chiều sâu kẹp + 5mm).', required:true, requireDot:true, placeholder:'vd:12.0'}
+            ], vals => {
+              if(vals===null){ resolve(lines.join('\n')); return; }
+              const E = vals.E; const Q = vals.Q;
+              const block = [
+`M990`,
+`N9000`,
+`G54`,
+`G28 W0. M105`,
+`M108`,
+`M138`,
+`M176`,
+`M117`,
+`G4X0.5`,
+`M151`,
+`T0000`,
+`M157`,
+`G4 X0.5`,
+`M158`,
+`M991`,
+`M139`,
+`M113`,
+`G28 H0.`,
+`G0 C0.`,
+`G30U0.`,
+`G4X0.3`,
+`M178`,
+`G00 G53 Z ${E}`,
+`G4X0.3`,
+`M179`,
+`G98`,
+`G01 W -${Q}  F1000`,
+`G4X0.3`,
+`M118`,
+`G4X0.5`,
+`M992`,
+`M993`,
+`G28W0.M195`,
+`G28U0.`,
+`M999`
+              ];
+              // Insert between original line 2 and 3: after second raw line
+              const insertAt = Math.min(2, lines.length);
+              lines.splice(insertAt,0,...block);
+              resolve(lines.join('\n'));
+            });
+          });
+        }
+
+        // Part catcher: if selected, add M37 before M30
+        if(partCatcher.checked){
+          const idx = lines.findIndex(l=>/\bM30\b/.test(l));
+          const insertAt = idx===-1?lines.length:idx;
+          lines.splice(insertAt,0,'M37');
+        }
+
+        // Bar feeder when HD2? user requested feeder only for HD1, so we'll not add here.
+
+        return Promise.resolve(lines.join('\n'));
+      }
+
+      // If no mode matched, just return original
+      return Promise.resolve(lines.join('\n'));
+    }
+
+    // Handler for runBtn: supports async returns from transform
+    runBtn.addEventListener('click', async ()=>{
+      outputEl.value = '';
+      const text = inputEl.value;
+      if(!text.trim()){ alert('Vui lòng nhập mã NC vào ô input.'); return; }
+      const result = await transform(text);
+      // If transform returned a string
+      if(typeof result === 'string'){
+        outputEl.value = result;
+      } else {
+        // guard
+        outputEl.value = String(result);
+      }
+
+      // Additional: if HD1 and part catcher selected add nothing extra (user asked only for part catcher on HD2)
+      // If HD1 and barFeeder selected we already inserted block.
+      // If HD2 and partCatcher selected already handled earlier.
+    });
+
+    copyOut.addEventListener('click', ()=>{ navigator.clipboard.writeText(outputEl.value).then(()=>alert('Copied kết quả vào clipboard')) });
+    copyInput.addEventListener('click', ()=>{ navigator.clipboard.writeText(inputEl.value).then(()=>alert('Copied input vào clipboard')) });
+    clearInput.addEventListener('click', ()=>{ if(confirm('Xóa văn bản đã nhập?')) inputEl.value=''; });
+
+    // simple UX: when clicking HD2 and cutoffSync checked and run -> will trigger modal from transform
+  </script>
+</body>
+</html>
