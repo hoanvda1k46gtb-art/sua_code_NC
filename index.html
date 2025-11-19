@@ -64,7 +64,7 @@
       </div>
     </div>
 
-    <p class="muted">Ghi chú: chương trình thực hiện nhiều thao tác chuỗi theo lựa chọn HD1/HD2. Nếu trường hợp nhập các tham số cut-off (A,B hoặc E,Q) yêu cầu phải có dấu chấm ('.') — nếu không có dấu chấm sẽ báo lỗi cú pháp.</p>
+    <p class="muted">Ghi chú: tất cả lựa chọn <strong>dùng máy cấp phôi</strong>, <strong>part catcher</strong> và <strong>cut-off</strong> có thể bật cùng lúc; chương trình sẽ chèn/biến đổi theo thứ tự hợp lý. Các trường nhập cut-off yêu cầu dấu chấm ('.') trong số — nếu thiếu sẽ báo lỗi cú pháp.</p>
   </div>
 
   <!-- Modal area for cut-off prompts -->
@@ -81,21 +81,12 @@
   </div>
 
   <script>
-    // Utility helpers
-    function hasToken(line, token){
-      return new RegExp('\\b'+token.replace('.', '\\.')+'\\b').test(line);
-    }
+    // Helpers
+    function escapeRE(s){ return s.replace(/[.*+?^${}()|[\]\]/g,'\$&'); }
+    function hasToken(line, token){ return new RegExp('\b'+escapeRE(token)+'\b').test(line); }
+    function replaceToken(line, from, to){ const re=new RegExp('\b'+escapeRE(from)+'\b','g'); return line.replace(re,to); }
+    function removeLinesContaining(lines, tokens){ return lines.filter(l => !tokens.some(t => new RegExp('\b'+escapeRE(t)+'\b').test(l))); }
 
-    function replaceToken(line, from, to){
-      const re = new RegExp('\\b'+from.replace('.', '\\.')+'\\b','g');
-      return line.replace(re,to);
-    }
-
-    function removeLinesContaining(lines, tokens){
-      return lines.filter(l => !tokens.some(t => new RegExp('\\b'+t.replace('.', '\\.')+'\\b').test(l)));
-    }
-
-    // Elements
     const inputEl = document.getElementById('input');
     const outputEl = document.getElementById('output');
     const runBtn = document.getElementById('run');
@@ -115,7 +106,25 @@
     const modalOk = document.getElementById('modalOk');
     const modalError = document.getElementById('modalError');
 
-    // Modal helpers
+    // When switching HD mode, enable/disable checkboxes according to requirements:
+    // - barFeeder allowed only with HD1
+    // - partCatcher allowed only with HD2
+    function refreshModeUI(){
+      if(hd1Radio.checked){
+        barFeeder.disabled = false;
+        partCatcher.disabled = true;
+        partCatcher.checked = false;
+      } else {
+        barFeeder.disabled = true;
+        barFeeder.checked = false;
+        partCatcher.disabled = false;
+      }
+    }
+    hd1Radio.addEventListener('change', refreshModeUI);
+    hd2Radio.addEventListener('change', refreshModeUI);
+    // initial
+    refreshModeUI();
+
     function showModal(title, fields, callback){
       modalTitle.textContent = title;
       modalBody.innerHTML = '';
@@ -128,251 +137,149 @@
       });
       modal.style.display = 'flex';
 
-      function close(){
-        modal.style.display = 'none';
-      }
+      function close(){ modal.style.display = 'none'; }
       modalCancel.onclick = () => { close(); callback(null); };
       modalOk.onclick = () => {
         modalError.style.display = 'none';
-        const values = {};
-        let ok = true;
+        const values = {}; let ok=true;
         fields.forEach(f => {
-          const v = document.getElementById('fld_'+f.id).value.trim();
-          values[f.id] = v;
+          const v = document.getElementById('fld_'+f.id).value.trim(); values[f.id]=v;
           if(f.required && v==='') ok=false;
-          // syntax check: if field requires dot
-          if(f.requireDot && v.indexOf('.') === -1){
-            ok = false; modalError.style.display = 'block'; modalError.textContent = `Lỗi cú pháp: giá trị ${f.label} phải chứa dấu '.'`;
-          }
+          if(f.requireDot && v.indexOf('.')===-1){ ok=false; modalError.style.display='block'; modalError.textContent = `Lỗi cú pháp: giá trị ${f.label} phải chứa dấu '.'`; }
         });
-        if(!ok) return;
-        close();
-        callback(values);
+        if(!ok) return; close(); callback(values);
       };
     }
 
-    // Core transform
-    function transform(text){
-      const linesRaw = text.split(/\r?\n/);
-      let lines = linesRaw.map(l=>l.replace(/\t/g,' ').trim());
+    // Blocks
+    const feederBlock = [
+      'G54', 'G50S1500', 'M900', 'G28V0.', 'G28U0.', 'G30W0.', 'T0000', 'M01', '',
+      'M910', '', 'N20(BAR STOP)', 'G54', 'G28U0.V0.M29', 'G40G97T0909M95', 'G0Z20.0', 'X0Y0.',
+      'G98G1Z0.2F2000', 'M17', 'M00(PUSH BAR MATERIAL BY HAND)', 'M18', 'G4X0.5', 'G0W20.',
+      'G28U0.', 'G30W0.', 'M911', 'M1'
+    ];
+
+    const cutoffHD1Template = (A,B)=>[
+`M990`, `N9000`, `G54`, `G28 U0. V0. M5`, `T1111`, `G28W0.M8`, `G97G99`, `M13`, `G28H0.`, `G0 C0.`,
+`M991`, `M992`, `G97S0P11M203`, `G97S1200P11M203`, `G00 Z ${A} Y0`, `X ${B} M28`, `G1 X-0.5 F0.05`, `G4U0.2`, `G00 X ${B}`,
+`M205`, `M206`, `M191`, `G97S70M03P11`, `M270`, `M993`, `G28U0.V0.M95`, `G30W0.M29`, `M999`
+];
+
+    const cutoffHD2Template = (E,Q)=>[
+`M990`, `N9000`, `G54`, `G28 W0. M105`, `M108`, `M138`, `M176`, `M117`, `G4X0.5`, `M151`,
+`T0000`, `M157`, `G4 X0.5`, `M158`, `M991`, `M139`, `M113`, `G28 H0.`, `G0 C0.`, `G30U0.`, `G4X0.3`,
+`M178`, `G00 G53 Z ${E}`, `G4X0.3`, `M179`, `G98`, `G01 W -${Q}  F1000`, `G4X0.3`, `M118`, `G4X0.5`,
+`M992`, `M993`, `G28W0.M195`, `G28U0.`, `M999`
+];
+
+    // Main transform
+    async function transform(text){
+      const raw = text.split(/
+?
+/);
+      let lines = raw.map(l=>l.replace(/	/g,' ').trim());
       const isHD1 = hd1Radio.checked;
       const isHD2 = hd2Radio.checked;
 
-      // Preliminary global replacements that depend on mode
       if(isHD1){
-        // Remove lines containing M26, M97, M78, M79
+        // removals
         lines = removeLinesContaining(lines, ['M26','M97','M78','M79']);
-        lines = lines.map(l => {
-          // if contains M03 or M04, append P11 (if not already present)
-          if((/\bM03\b/.test(l) || /\bM04\b/.test(l)) && !/P11/.test(l)) l = l + 'P11';
-          // replacements
+        // replacements & append P11 to lines with M03 or M04
+        lines = lines.map(l=>{
+          if((/M03/.test(l) || /M04/.test(l)) && !/P11/.test(l)) l = l + 'P11';
           l = replaceToken(l,'M204','M44P12');
           l = replaceToken(l,'M203','M43P12');
           l = replaceToken(l,'M25','M13');
           return l;
         });
 
-        // If barFeeder selected -> insert bar feeder block between line 2 and 3
+        // Bar feeder insertion (if selected) -> between line 2 and 3 of original input
         if(barFeeder.checked){
-          const feeder = [
-`G54 `,
-`G50S1500`,
-`M900`,
-`G28V0.`,
-`G28U0.`,
-`G30W0.`,
-`T0000 `,
-`M01`,
-``,
-`M910`,
-``,
-`N20(BAR STOP) `,
-`G54 `,
-`G28U0.V0.M29`,
-`G40G97T0909M95`,
-`G0Z20.0 `,
-`X0Y0. `,
-`G98G1Z0.2F2000`,
-`M17 `,
-`M00(PUSH BAR MATERIAL BY HAND)`,
-`M18 `,
-`G4X0.5`,
-`G0W20.`,
-`G28U0.`,
-`G30W0.`,
-`M911`,
-`M1`
-          ];
           const insertAt = Math.min(2, lines.length);
-          lines.splice(insertAt,0,...feeder);
+          lines.splice(insertAt,0,...feederBlock);
         }
 
-        // Cutoff sync: will be inserted before M30 using prompt A and B
+        // Cutoff sync: insert block BEFORE first M30 (if any), using prompt A and B
         if(cutoffSync.checked){
-          // show modal to collect A and B
-          return new Promise((resolve)=>{
+          const vals = await new Promise((res)=>{
             showModal('Cut-off HD1 — nhập A (Z) và B (X)', [
               {id:'A',label:'A = vị trí cắt theo trục Z (chiều dài + bề rộng dao).', required:true, requireDot:true, placeholder:'vd:123.5'},
               {id:'B',label:'B = khoảng cách an toàn theo X (đường kính + 5mm).', required:true, requireDot:true, placeholder:'vd:50.0'}
-            ], vals => {
-              if(vals===null){ resolve(lines.join('\n')); return; }
-              const A = vals.A; const B = vals.B;
-              const block = [
-`M990`,
-`N9000`,
-`G54`,
-`G28 U0. V0. M5`,
-`T1111`,
-`G28W0.M8`,
-`G97G99`,
-`M13`,
-`G28H0.`,
-`G0 C0.`,
-`M991`,
-`M992`,
-`G97S0P11M203`,
-`G97S1200P11M203`,
-`G00 Z ${A} Y0`,
-`X ${B} M28`,
-`G1 X-0.5 F0.05`,
-`G4U0.2`,
-`G00 X ${B}`,
-`M205`,
-`M206`,
-`M191`,
-`G97S70M03P11`,
-`M270`,
-`M993`,
-`G28U0.V0.M95`,
-`G30W0.M29`,
-`M999`
-              ];
-              // insert before the first line that is exactly 'M30' or contains M30 token
-              const idx = lines.findIndex(l=>/\bM30\b/.test(l));
-              const insertAt = idx===-1?lines.length:idx;
-              lines.splice(insertAt,0,...block);
-              resolve(lines.join('\n'));
-            });
+            ], res);
           });
+          if(vals){
+            const block = cutoffHD1Template(vals.A, vals.B);
+            const idx = lines.findIndex(l=>/M30/.test(l));
+            const insertAt = idx===-1?lines.length:idx;
+            lines.splice(insertAt,0,...block);
+          }
         }
 
-        // If no cutoffSync (synchronous) or after other ops, return
-        return Promise.resolve(lines.join('\n'));
+        // Allow part catcher if user explicitly checked (even if normally disabled) -> but requirement: part catcher operates with HD2; enforce disabled earlier. Here we respect UI.
+        return lines.join('
+');
       }
 
       if(isHD2){
-        // remove lines containing M97, M78, M79, A0
+        // removals
         lines = removeLinesContaining(lines, ['M97','M78','M79','A0']);
-        lines = lines.map(l => {
-          // M103 add P21
-          if(/\bM103\b/.test(l) && !/P21/.test(l)) l = l + 'P21';
-          // M104 add M104P21 (if not already)
-          if(/\bM104\b/.test(l) && !/M104P21/.test(l)) l = l.replace(/\bM104\b/g,'M104P21');
-          // token replacements
+        lines = lines.map(l=>{
+          if(/M103/.test(l) && !/P21/.test(l)) l = l + 'P21';
+          if(/M104/.test(l) && !/M104P21/.test(l)) l = l.replace(/M104/g,'M104P21');
           l = replaceToken(l,'M203','M43P22');
           l = replaceToken(l,'M204','M44P22');
           l = replaceToken(l,'M25','M113');
           l = replaceToken(l,'M26','M151');
-          // remove V0. and Y0.
-          l = l.replace(/\bV0\./g,'');
-          l = l.replace(/\bY0\./g,'');
+          l = l.replace(/V0\./g,'');
+          l = l.replace(/Y0\./g,'');
           return l;
         });
 
-        // Cutoff sync HD2: insert block between line 2 and 3 of original input (i.e., after second line)
+        // Cutoff sync HD2: insert block BETWEEN line 2 and 3 of the original input
         if(cutoffSync.checked){
-          return new Promise((resolve)=>{
+          const vals = await new Promise((res)=>{
             showModal('Cut-off HD2 — nhập E và Q', [
               {id:'E',label:'E = khoảng cách an toàn của Z2 (cách bề mặt phôi 5mm).', required:true, requireDot:true, placeholder:'vd:5.0'},
               {id:'Q',label:'Q = vị trí kẹp (chiều sâu kẹp + 5mm).', required:true, requireDot:true, placeholder:'vd:12.0'}
-            ], vals => {
-              if(vals===null){ resolve(lines.join('\n')); return; }
-              const E = vals.E; const Q = vals.Q;
-              const block = [
-`M990`,
-`N9000`,
-`G54`,
-`G28 W0. M105`,
-`M108`,
-`M138`,
-`M176`,
-`M117`,
-`G4X0.5`,
-`M151`,
-`T0000`,
-`M157`,
-`G4 X0.5`,
-`M158`,
-`M991`,
-`M139`,
-`M113`,
-`G28 H0.`,
-`G0 C0.`,
-`G30U0.`,
-`G4X0.3`,
-`M178`,
-`G00 G53 Z ${E}`,
-`G4X0.3`,
-`M179`,
-`G98`,
-`G01 W -${Q}  F1000`,
-`G4X0.3`,
-`M118`,
-`G4X0.5`,
-`M992`,
-`M993`,
-`G28W0.M195`,
-`G28U0.`,
-`M999`
-              ];
-              // Insert between original line 2 and 3: after second raw line
-              const insertAt = Math.min(2, lines.length);
-              lines.splice(insertAt,0,...block);
-              resolve(lines.join('\n'));
-            });
+            ], res);
           });
+          if(vals){
+            const block = cutoffHD2Template(vals.E, vals.Q);
+            const insertAt = Math.min(2, lines.length);
+            lines.splice(insertAt,0,...block);
+          }
         }
 
         // Part catcher: if selected, add M37 before M30
         if(partCatcher.checked){
-          const idx = lines.findIndex(l=>/\bM30\b/.test(l));
+          const idx = lines.findIndex(l=>/M30/.test(l));
           const insertAt = idx===-1?lines.length:idx;
           lines.splice(insertAt,0,'M37');
         }
 
-        // Bar feeder when HD2? user requested feeder only for HD1, so we'll not add here.
+        // Bar feeder: disabled in HD2 by UI, but if user force-checks via DOM (shouldn't), guard: do not insert here
 
-        return Promise.resolve(lines.join('\n'));
+        return lines.join('
+');
       }
 
-      // If no mode matched, just return original
-      return Promise.resolve(lines.join('\n'));
+      return lines.join('
+');
     }
 
-    // Handler for runBtn: supports async returns from transform
     runBtn.addEventListener('click', async ()=>{
       outputEl.value = '';
-      const text = inputEl.value;
-      if(!text.trim()){ alert('Vui lòng nhập mã NC vào ô input.'); return; }
-      const result = await transform(text);
-      // If transform returned a string
-      if(typeof result === 'string'){
+      const t = inputEl.value;
+      if(!t.trim()){ alert('Vui lòng nhập mã NC vào ô input.'); return; }
+      try{
+        const result = await transform(t);
         outputEl.value = result;
-      } else {
-        // guard
-        outputEl.value = String(result);
-      }
-
-      // Additional: if HD1 and part catcher selected add nothing extra (user asked only for part catcher on HD2)
-      // If HD1 and barFeeder selected we already inserted block.
-      // If HD2 and partCatcher selected already handled earlier.
+      }catch(e){ alert('Lỗi khi xử lý: '+e.message); }
     });
 
     copyOut.addEventListener('click', ()=>{ navigator.clipboard.writeText(outputEl.value).then(()=>alert('Copied kết quả vào clipboard')) });
     copyInput.addEventListener('click', ()=>{ navigator.clipboard.writeText(inputEl.value).then(()=>alert('Copied input vào clipboard')) });
     clearInput.addEventListener('click', ()=>{ if(confirm('Xóa văn bản đã nhập?')) inputEl.value=''; });
-
-    // simple UX: when clicking HD2 and cutoffSync checked and run -> will trigger modal from transform
   </script>
 </body>
 </html>
