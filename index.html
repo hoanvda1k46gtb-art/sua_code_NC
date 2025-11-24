@@ -161,7 +161,7 @@
 ];
 
     const cutoffHD2Template = (E,Q)=>[
-`M990`, `N9000`, `G54`, `G28 W0. M105`, `M108`, `M138`, `M176`, `M117`, `G4X0.5`, `M151`,
+`M990`, `N9000`, `G59`, `G28 W0. M105`, `M108`, `M138`, `M176`, `M117`, `G4X0.5`, `M151`,
 `T0000`, `M157`, `G4 X0.5`, `M158`, `M991`, `M139`, `M113`, `G28 H0.`, `G0 C0.`, `G30U0.`, `G4X0.3`,
 `M178`, `G00 G53 Z ${E}`, `G4X0.3`, `M179`, `G98`, `G01 W -${Q}  F1000`, `G4X0.3`, `M118`, `G4X0.5`,
 `M992`, `M993`, `G28W0.M195`, `G28U0.`, `M999`
@@ -181,7 +181,7 @@
           l = replaceToken(l,'M204','M44 P12');
           l = replaceToken(l,'M203','M43P12');
           l = replaceToken(l,'M25','M13');
-          l = replaceToken(l,'M205','M05');
+          l = replaceToken(l,'M205','M45');
           return l;
         });
         if(barFeeder.checked){
@@ -218,7 +218,7 @@
           l = replaceToken(l,'M126','M151');
           l = replaceToken(l,'M08','M108');
           l = replaceToken(l,'M09','M109');
-          l = replaceToken(l,'M205','M105');
+          l = replaceToken(l,'M205','M45');
           // Thay tất cả B thành C, kể cả cạnh số
           l = l.replace(/B/g,'C');
           l = l.replace(/\bV0\./g,'');
