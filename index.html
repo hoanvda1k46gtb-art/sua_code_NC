@@ -191,7 +191,7 @@
         if(cutoffSync.checked){
           const vals = await new Promise((res)=>{
             showModal('Cut-off HD1 — nhập A (Z) và B (X)', [
-              {id:'A',label:'A = vị trí cắt theo trục Z (chiều dài + bề rộng dao).', required:true, requireDot:true, placeholder:'vd:123.5'},
+              {id:'A',label:'A = vị trí cắt theo trục Z (chiều dài + bề rộng dao + offset phôi).', required:true, requireDot:true, placeholder:'vd:123.5'},
               {id:'B',label:'B = khoảng cách an toàn theo X (đường kính + 5mm).', required:true, requireDot:true, placeholder:'vd:50.0'}
             ], res);
           });
@@ -230,7 +230,7 @@
           const vals = await new Promise((res)=>{
             showModal('Cut-off HD2 — nhập E và Q', [
               {id:'E',label:'E = khoảng cách an toàn của Z2 (cách bề mặt phôi 5mm).', required:true, requireDot:true, placeholder:'vd:5.0'},
-              {id:'Q',label:'Q = vị trí kẹp (chiều sâu kẹp + 5mm).', required:true, requireDot:true, placeholder:'vd:12.0'}
+              {id:'Q',label:'Q = vị trí kẹp (chiều sâu kẹp + 5mm+ offset dao).', required:true, requireDot:true, placeholder:'vd:12.0'}
             ], res);
           });
           if(vals){
